@@ -25,19 +25,19 @@ class ACF_GitHub_Updater {
      */
     private function get_latest_release() {
         $cached = get_transient( $this->transient_key );
-        if ( $cached !== false ) {
+        if ( false !== $cached ) {
             return $cached;
         }
 
         $response = wp_remote_get( $this->api_url, [
             'headers' => [
                 'Accept'     => 'application/vnd.github+json',
-                'User-Agent' => 'WordPress/' . get_bloginfo('version'),
+                'User-Agent' => 'WordPress/' . get_bloginfo( 'version' ),
             ],
             'timeout' => 15,
-        ]);
+        ] );
 
-        if ( is_wp_error( $response ) || wp_remote_retrieve_response_code( $response ) !== 200 ) {
+        if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
             return false;
         }
 
@@ -47,13 +47,31 @@ class ACF_GitHub_Updater {
             return false;
         }
 
-        // Normalizza il tag (rimuove eventuale "v" iniziale)
-        $version = ltrim( $body['tag_name'], 'v' );
+        $tag     = $body['tag_name'];
+        $version = ltrim( $tag, 'v' );
+        $zip_url = '';
+
+        if ( ! empty( $body['assets'] ) && is_array( $body['assets'] ) ) {
+            foreach ( $body['assets'] as $asset ) {
+                if ( empty( $asset['name'] ) || empty( $asset['browser_download_url'] ) ) {
+                    continue;
+                }
+
+                if ( $asset['name'] === 'advanced-custom-fields-pro.' . $version . '.zip' ) {
+                    $zip_url = $asset['browser_download_url'];
+                    break;
+                }
+            }
+        }
+
+        if ( empty( $zip_url ) ) {
+            $zip_url = $this->zip_base_url . '/' . $tag . '/advanced-custom-fields-pro.' . $version . '.zip';
+        }
 
         $release = [
             'version'     => $version,
-            'tag'         => $body['tag_name'],
-            'zip_url'     => $this->zip_base_url . '/' . $body['tag_name'] . '/advanced-custom-fields-pro-' . $version . '.zip',
+            'tag'         => $tag,
+            'zip_url'     => $zip_url,
             'description' => $body['body'] ?? '',
             'published'   => $body['published_at'] ?? '',
         ];
@@ -94,6 +112,7 @@ class ACF_GitHub_Updater {
         }
 
         if ( version_compare( $release['version'], $installed, '>' ) ) {
+            error_log( 'ACF updater package: ' . $release['zip_url'] );
             $transient->response[ $this->acf_plugin ] = (object) [
                 'slug'        => 'advanced-custom-fields-pro',
                 'plugin'      => $this->acf_plugin,
