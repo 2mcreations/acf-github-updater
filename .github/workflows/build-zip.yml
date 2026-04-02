@@ -1,0 +1,43 @@
+name: Build ZIP Package
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-zip:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set repository name
+        id: vars
+        run: |
+          echo "repo_name=${GITHUB_REPOSITORY##*/}" >> $GITHUB_OUTPUT
+
+      - name: Create package zip
+        run: |
+          REPO_NAME="${{ steps.vars.outputs.repo_name }}"
+          mkdir -p /tmp/$REPO_NAME
+          rsync -a \
+            --exclude='.git' \
+            --exclude='.github' \
+            ./ /tmp/$REPO_NAME/
+          cd /tmp
+          zip -r "$GITHUB_WORKSPACE/${REPO_NAME}.zip" "$REPO_NAME"
+
+      - name: Upload zip to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.vars.outputs.repo_name }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
