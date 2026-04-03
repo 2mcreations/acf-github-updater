@@ -1,4 +1,4 @@
-name: Auto Tag on Version Change
+name: Auto Tag & Build ZIP
 
 on:
   push:
@@ -6,10 +6,10 @@ on:
       - main
       - master
     paths:
-      - 'acf-github-updater.php'  # reagisce SOLO se questo file cambia
+      - 'acf-github-updater.php'
 
 jobs:
-  auto-tag:
+  tag-and-zip:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -18,7 +18,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # necessario per leggere i tag esistenti
+          fetch-depth: 0
 
       - name: Estrai versione dal plugin header
         id: plugin_version
@@ -26,7 +26,6 @@ jobs:
           VERSION=$(grep -m1 '^ \* Version:' acf-github-updater.php | sed 's/.*Version:\s*//' | tr -d '[:space:]')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=v$VERSION" >> $GITHUB_OUTPUT
-          echo "Versione rilevata: $VERSION"
 
       - name: Verifica se il tag esiste già
         id: check_tag
@@ -34,21 +33,26 @@ jobs:
           TAG="v${{ steps.plugin_version.outputs.version }}"
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "exists=true" >> $GITHUB_OUTPUT
-            echo "Tag $TAG già esistente, skip."
           else
             echo "exists=false" >> $GITHUB_OUTPUT
-            echo "Tag $TAG non trovato, procedo con la creazione."
           fi
 
-      - name: Crea tag e release
+      - name: Crea ZIP
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          REPO_NAME="${GITHUB_REPOSITORY##*/}"
+          mkdir -p /tmp/$REPO_NAME
+          rsync -a --exclude='.git' --exclude='.github' ./ /tmp/$REPO_NAME/
+          cd /tmp
+          zip -r "$GITHUB_WORKSPACE/${REPO_NAME}.zip" "$REPO_NAME"
+
+      - name: Crea release con ZIP allegato
         if: steps.check_tag.outputs.exists == 'false'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.plugin_version.outputs.tag }}
-          name: "ACF GitHub Updater ${{ steps.plugin_version.outputs.tag }}"
-          body: |
-            Release automatica dalla versione `${{ steps.plugin_version.outputs.version }}` 
-            rilevata in `acf-github-updater.php`.
+          name: "${{ steps.plugin_version.outputs.tag }}"
+          files: ${{ github.event.repository.name }}.zip
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
