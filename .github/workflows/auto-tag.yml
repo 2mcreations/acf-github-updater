@@ -1,0 +1,54 @@
+name: Auto Tag on Version Change
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'acf-github-updater.php'  # reagisce SOLO se questo file cambia
+
+jobs:
+  auto-tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # necessario per leggere i tag esistenti
+
+      - name: Estrai versione dal plugin header
+        id: plugin_version
+        run: |
+          VERSION=$(grep -m1 '^ \* Version:' acf-github-updater.php | sed 's/.*Version:\s*//' | tr -d '[:space:]')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+          echo "Versione rilevata: $VERSION"
+
+      - name: Verifica se il tag esiste già
+        id: check_tag
+        run: |
+          TAG="v${{ steps.plugin_version.outputs.version }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Tag $TAG già esistente, skip."
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Tag $TAG non trovato, procedo con la creazione."
+          fi
+
+      - name: Crea tag e release
+        if: steps.check_tag.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.plugin_version.outputs.tag }}
+          name: "ACF GitHub Updater ${{ steps.plugin_version.outputs.tag }}"
+          body: |
+            Release automatica dalla versione `${{ steps.plugin_version.outputs.version }}` 
+            rilevata in `acf-github-updater.php`.
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

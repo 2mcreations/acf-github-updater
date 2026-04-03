@@ -21,6 +21,66 @@ class ACF_GitHub_Updater {
     }
 
     /**
+     * Recupera il changelog originale
+     */
+    private function get_changelog_section( $version ) {
+        $cache_key = 'acf_github_changelog_' . md5( $version );
+        $cached    = get_transient( $cache_key );
+
+        if ( false !== $cached ) {
+            return $cached;
+        }
+
+        $response = wp_remote_get( 'https://www.advancedcustomfields.com/changelog/', [
+            'timeout' => 20,
+            'headers' => [ 'User-Agent' => 'WordPress/' . get_bloginfo( 'version' ) ],
+        ] );
+
+        if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
+            return '';
+        }
+
+        $html = wp_remote_retrieve_body( $response );
+        if ( empty( $html ) || ! class_exists( 'DOMDocument' ) ) {
+            return '';
+        }
+
+        libxml_use_internal_errors( true );
+        $dom = new DOMDocument();
+        $dom->loadHTML( '<?xml encoding="UTF-8">' . $html ); // fix encoding
+        libxml_clear_errors();
+
+        $xpath  = new DOMXPath( $dom );
+        $nodes  = $xpath->query( '//h2' );
+        $output = '';
+
+        foreach ( $nodes as $node ) {
+            if ( trim( $node->textContent ) !== $version ) {
+                continue;
+            }
+
+            $output .= '<h4>' . esc_html( $version ) . '</h4>';
+            $next    = $node->nextSibling;
+
+            while ( $next ) {
+                if ( $next->nodeType === XML_ELEMENT_NODE && strtolower( $next->nodeName ) === 'h2' ) {
+                    break;
+                }
+                if ( $next->nodeType === XML_ELEMENT_NODE ) {
+                    $output .= $dom->saveHTML( $next );
+                }
+                $next = $next->nextSibling;
+            }
+            break;
+        }
+
+        $output = wp_kses_post( $output );
+        set_transient( $cache_key, $output, DAY_IN_SECONDS * 7 ); // cache 7 giorni
+
+        return $output;
+    }
+
+    /**
      * Recupera l'ultima release da GitHub con cache transient
      */
     private function get_latest_release() {
@@ -112,7 +172,6 @@ class ACF_GitHub_Updater {
         }
 
         if ( version_compare( $release['version'], $installed, '>' ) ) {
-            error_log( 'ACF updater package: ' . $release['zip_url'] );
             $transient->response[ $this->acf_plugin ] = (object) [
                 'slug'        => 'advanced-custom-fields-pro',
                 'plugin'      => $this->acf_plugin,
@@ -154,7 +213,9 @@ class ACF_GitHub_Updater {
             'last_updated'  => $release['published'],
             'sections'      => [
                 'description' => 'Aggiornamento tramite GitHub — ' . $this->github_user . '/' . $this->github_repo,
-                'changelog'   => nl2br( esc_html( $release['description'] ) ),
+                'changelog'   => $this->get_changelog_section( $release['version'] )
+                                ?: nl2br( esc_html( $release['description'] ) )
+                                ?: '<p>Nessun changelog disponibile.</p>',
             ],
         ];
     }
@@ -182,7 +243,13 @@ class ACF_GitHub_Updater {
             isset( $hook_extra['plugins'] ) &&
             in_array( $this->acf_plugin, $hook_extra['plugins'], true )
         ) {
+            $release = get_transient( $this->transient_key );
+
+            // Svuota anche la cache del changelog
             delete_transient( $this->transient_key );
+            if ( $release ) {
+                delete_transient( 'acf_github_changelog_' . md5( $release['version'] ) );
+            }
         }
     }
 
