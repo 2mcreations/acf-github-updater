@@ -44,7 +44,7 @@ jobs:
           mkdir -p /tmp/$REPO_NAME
           rsync -a --exclude='.git' --exclude='.github' ./ /tmp/$REPO_NAME/
           cd /tmp
-          zip -r "$GITHUB_WORKSPACE/${REPO_NAME}.zip" "$REPO_NAME"
+          zip -r "$GITHUB_WORKSPACE/${REPO_NAME}-${{ steps.plugin_version.outputs.version }}.zip" "$REPO_NAME"
 
       - name: Crea release con ZIP allegato
         if: steps.check_tag.outputs.exists == 'false'

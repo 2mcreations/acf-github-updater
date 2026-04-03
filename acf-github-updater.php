@@ -2,8 +2,9 @@
 /**
  * Plugin Name: ACF Pro GitHub Updater
  * Description: Aggiorna Advanced Custom Fields PRO dalle release GitHub
- * Version: 1.0.3
+ * Version: 1.0.4
  * Author: 2mcreations.it
+ * Author URI: https://2mcreations.it
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
